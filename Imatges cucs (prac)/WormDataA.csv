@@ -1,0 +1,25 @@
+File,Status;# dead worms;# alive worms
+wormA01.tif,alive;2;12
+wormA02.tif,alive;3;12
+wormA03.tif,alive;1;14
+wormA04.tif,alive;2;13
+wormA05.tif,alive;2;13
+wormA06.tif,alive;4;11
+wormA07.tif,alive;2;12
+wormA08.tif,alive;0;14
+wormA09.tif,alive;3;13
+wormA10.tif,alive;2;15
+wormA11.tif,alive;1;14
+wormA12.tif,alive;0;15
+wormA13.tif,dead;9;5
+wormA14.tif,dead;12;2
+wormA15.tif,dead;13;2
+wormA16.tif,dead;11;2
+wormA17.tif,dead;13;1
+wormA18.tif,dead;13;1
+wormA19.tif,dead;12;0
+wormA20.tif,dead;10;2
+wormA21.tif,dead;16;1
+wormA22.tif,dead;14;0
+wormA23.tif,dead;12;0
+wormA24.tif,dead;14;0
