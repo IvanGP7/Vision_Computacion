@@ -1,117 +1,127 @@
-%% Configuración Inicial
-clear all; close all; clc;
-
 % Parámetros ajustables
-folder_path = 'WormImages';               % Carpeta de imágenes
-output_folder_bin = 'BinarizadoSuave';    % Imágenes binarias procesadas
-output_folder_marcadas = 'ResultadosMarcados'; % Imágenes clasificadas
-csv_filename = 'resultados_clasificacion.csv'; % Resultados en CSV
+folder_path   = 'WormImages';
+output_folder = 'Resultado';
 
-% Umbrales de segmentación
-min_area = 30;                            % Área mínima (px) para considerar gusano
-min_longitud = 30;                        % Longitud mínima (px)
-umbral_aspect_ratio = 1.5;                % Relación largo/ancho mínima
-
-% Umbrales de clasificación
-umbral_ecc_vivo = 0.95;                   % Excentricidad máxima para vivo (más bajo = más curvado)
-umbral_solid_vivo = 0.85;                 % Solidez máxima para vivo (más bajo = menos compacto)
-
-%% Preprocesamiento y Clasificación
-% Crear carpetas de salida
-if ~exist(output_folder_bin, 'dir'), mkdir(output_folder_bin); end
-if ~exist(output_folder_marcadas, 'dir'), mkdir(output_folder_marcadas); end
-
-% Inicializar tabla de resultados
-resultados_tabla = table(...
-    'Size', [0, 4],...
-    'VariableTypes', {'string', 'double', 'double', 'string'},...
-    'VariableNames', {'Imagen', 'Vivos', 'Muertos', 'Clase'});
-
-% Procesar cada imagen
-image_files = dir(fullfile(folder_path, '*.tif'));
-for k = 1:length(image_files)
-    % Cargar y preprocesar imagen
-    image_path = fullfile(folder_path, image_files(k).name);
-    I = imread(image_path);
-    if size(I, 3) == 3, Igray = rgb2gray(I); else, Igray = I; end
-    
-    % Mejora de contraste y binarización
-    Ieq = adapthisteq(Igray, 'ClipLimit', 0.01); % Menos agresivo
-    Ifilt = imgaussfilt(Ieq, 1.5);               % Suavizado Gaussiano
-    BW = imbinarize(Ifilt, 'adaptive', 'ForegroundPolarity', 'dark', 'Sensitivity', 0.5);
-    BW = imopen(BW, strel('disk', 1));           % Operaciones morfológicas suaves
-    BW = imclose(BW, strel('disk', 2));
-    BW = bwareaopen(BW, 10);                     % Eliminar ruido pequeño
-    
-    % Eliminar marco negro
-    BW_negros = (BW == 0);
-    BW_sin_marco_negros = imclearborder(BW_negros);
-    mascara_marco = BW_negros & ~BW_sin_marco_negros;
-    BW_sin_marco = BW;
-    BW_sin_marco(mascara_marco) = 1;
-    BW_final = bwareaopen(BW_sin_marco, 15);
-    
-    % Guardar imagen binaria
-    [~, baseName, ~] = fileparts(image_files(k).name);
-    imwrite(BW_final, fullfile(output_folder_bin, [baseName '_binaria.png']));
-    
-    %% Segmentación y clasificación
-    BW_gusanos = ~BW_final; % Gusanos = 1 (blanco)
-    stats = regionprops(BW_gusanos, 'Area', 'MajorAxisLength', 'MinorAxisLength',...
-        'Eccentricity', 'Solidity', 'BoundingBox', 'PixelIdxList');
-    
-    num_vivos = 0;
-    num_muertos = 0;
-    imagen_marcada = im2uint8(cat(3, BW_final, BW_final, BW_final)); % Fondo blanco
-    
-    for i = 1:length(stats)
-        % Filtrar por tamaño y forma
-        if stats(i).Area < min_area || stats(i).MajorAxisLength < min_longitud
-            continue;
-        end
-        
-        aspect_ratio = stats(i).MajorAxisLength / stats(i).MinorAxisLength;
-        if aspect_ratio < umbral_aspect_ratio
-            continue;
-        end
-        
-        % Clasificar por curvatura
-        es_vivo = (stats(i).Eccentricity < umbral_ecc_vivo) && ...
-                  (stats(i).Solidity < umbral_solid_vivo);
-        
-        % Marcar en la imagen
-        contorno = bwperim(stats(i).PixelIdxList);
-        [filas, cols] = ind2sub(size(BW_final), find(contorno));
-        
-        if es_vivo
-            color = [0 255 0]; % Verde: vivo
-            num_vivos = num_vivos + 1;
-        else
-            color = [255 0 0]; % Rojo: muerto
-            num_muertos = num_muertos + 1;
-        end
-        
-        for j = 1:length(filas)
-            imagen_marcada(filas(j), cols(j), :) = color;
-        end
-    end
-    
-    % Clasificación de la imagen
-    clase_imagen = 'Viva';
-    if num_muertos > num_vivos, clase_imagen = 'Muerta'; end
-    
-    % Guardar imagen marcada
-    imwrite(imagen_marcada, fullfile(output_folder_marcadas, [baseName '_marcada.png']));
-    
-    % Actualizar tabla de resultados
-    resultados_tabla = [resultados_tabla;...
-        {image_files(k).name, num_vivos, num_muertos, clase_imagen}];
-    
-    % Mostrar resultados en consola
-    fprintf('Imagen: %s\n   - Vivos: %d | Muertos: %d | Clase: %s\n',...
-        image_files(k).name, num_vivos, num_muertos, clase_imagen);
+if ~exist(output_folder,'dir')
+    mkdir(output_folder);
 end
 
-% Guardar CSV
-writetable(resultados_tabla, csv_filename);
-disp('Proceso completado. Resultados guardados en ' + csv_filename);
+csv_file = fullfile(output_folder, 'recuento_gusanos.csv');
+if ~isfile(csv_file)
+    fid = fopen(csv_file, 'w');
+    fprintf(fid, 'nombre_fichero;muertos;vivos\n');
+    fclose(fid);
+end
+
+
+files = dir(fullfile(folder_path,'*.tif'));
+%k = 10;  % índice de la imagen a procesar
+for k = 1:numel(files)
+    name = files(k).name;
+    I    = imread(fullfile(folder_path,name));
+    
+    % 1) A gris y blanqueo negros puros
+    if size(I,3)==3
+        gray = rgb2gray(I);
+    else
+        gray = I;
+    end
+    gray(gray==0) = 255;
+    
+    %% MASCARAS
+    % Binarizar para obtener máscara gruesa de cristal
+    MASK   = imbinarize(gray, 0.1);        % fondo claro = 1, cristal = 0
+    MASK   = imcomplement(MASK);           % interior = 1
+    MASK   = bwareaopen(MASK, 120);        % limpia artefactos
+    
+    % Aislar interior: fondo exterior a blanco
+    gray2 = gray;
+    gray2(~MASK) = 255;
+
+    % Limpiar máscara preliminar (opcional)
+    level  = graythresh(gray2);
+    MKTemp = imbinarize(gray2, level);
+    MKTemp = imcomplement(MKTemp);
+    MKTemp(~MASK) = 0;
+    MKFinal = bwareaopen(MKTemp, 120);
+    MKFinal = bwareaopen(~MKFinal, 120);
+    gray2 = gray;
+    gray2(~MKFinal) = 255;  % actualizo gray2 y MASK
+    MASK  = MKFinal;
+    
+    %% Detectar objetos oscuros con umbral adaptativo
+    % 1) Prepara el gris para binarizar solo dentro de la máscara
+    grayMasked = gray;
+    grayMasked(~MASK) = 255;          % forzamos fuera del cristal a blanco
+    T  = adaptthresh(grayMasked, 0.6, 'NeighborhoodSize', 11);
+    BW0 = imbinarize(grayMasked, T);    % 1 = claro
+    BW = ~BW0;                          % gusanos (oscuros) → 1
+    BW(~MASK) = 0;                      % zona fuera = 0  
+    
+    % 4) Forzamos TODO lo que esté fuera de la máscara a 0 (negro)
+    BW(~MASK) = 0;
+    
+    %% Eliminar Marco Mascara
+    se = strel('disk',1);                        % prueba radio 3–5px
+    innerMask = imerode(MASK, se);
+    
+    % 2) Limpiar cualquier componente que toque el borde de la imagen
+    BW_noframe = imclearborder(BW);
+    
+    % 3) Aplicar el interior recortado para quitar resto de marco
+    BW_noframe(~innerMask) = 0;
+    
+    %% Limpiar la imagen
+    BW1 = bwareaopen(BW_noframe, 150);
+    se = strel('disk', 1);  % disco pequeño para suavizado ligero
+    BW1 = imopen(BW1, se); % Eliminar bordes
+    BW1 = bwareaopen(BW1, 150); % Eliminar Bloques
+    BW1 = imfill(BW1, 'holes'); % Cerrar huecos
+    BW1 = bwareaopen(BW1, 250); % Eliminar Bloques
+    BW1 = imopen(BW1, se); % Eliminar bordes
+    BW1 = imclose(BW1, strel('disk', 1));
+
+    %% Detección Gusanos
+
+
+    vivos = 0;
+    muertos = 0;
+
+    stats = regionprops(BW1, 'BoundingBox', 'Eccentricity', 'Centroid');
+    L = bwlabel(BW1);
+
+    % Mostrar detección sobre la imagen original
+    figure, imshow(gray), title('Gusanos detectados'); hold on;
+
+    for i = 1:length(stats)
+        bb = stats(i).BoundingBox;
+        centroid = stats(i).Centroid;
+        ecc = stats(i).Eccentricity;
+
+        if ecc > 0.98
+            rectangle('Position', bb, 'EdgeColor', 'r', 'LineWidth', 1.5);
+            text(centroid(1), centroid(2), 'Muerto', 'Color', 'r', 'FontSize', 8);
+            muertos = muertos + 1;
+        else
+            rectangle('Position', bb, 'EdgeColor', 'g', 'LineWidth', 1.5);
+            text(centroid(1), centroid(2), 'Vivo', 'Color', 'g', 'FontSize', 8);
+            vivos = vivos + 1;
+        end
+    end
+
+    
+    %% Mostrar resultados
+    %figure('Name',name,'NumberTitle','off');
+    %subplot(2,2,1), imshow(gray2),   title('Interior aislado');
+    %subplot(2,2,2), imshow(MASK),    title('Máscara interior');
+    %subplot(2,2,3), imshow(BW_noframe),    title('Máscara aplicada');
+    %subplot(2,2,4), imshow(BW1),  title('Eliminar ruido');
+    % (Opcional) guardar output
+    % imwrite(bwDark, fullfile(output_folder, ['dark_' name]));
+
+    %% Guardar resultados
+    fid = fopen(csv_file, 'a');
+    fprintf(fid, '%s;%d;%d\n', name, muertos, vivos);
+    fclose(fid);
+
+end
