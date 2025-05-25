@@ -98,7 +98,7 @@ for k = 1:numel(files)
         centroid = stats(i).Centroid;
         ecc = stats(i).Eccentricity;
 
-        if ecc > 0.98
+        if ecc > 0.99
             rectangle('Position', bb, 'EdgeColor', 'r', 'LineWidth', 1.5);
             text(centroid(1), centroid(2), 'Muerto', 'Color', 'r', 'FontSize', 8);
             muertos = muertos + 1;
