@@ -4,42 +4,25 @@ output_folder = 'Resultado';
 image_output_folder = fullfile(output_folder, 'Imagenes');
 ground_truth_file = fullfile('WormDataA.csv');
 
-rmdir(output_folder, 's'); % Eliminar resultados anteriores
-
-if ~exist(output_folder,'dir')
+if exist(output_folder,'dir')
+    rmdir(output_folder, 's');
+end
     mkdir(output_folder);
-end
-if ~exist(image_output_folder, 'dir')
     mkdir(image_output_folder);
-end
-
-csv_file = fullfile(output_folder, 'recuento_gusanos.csv');
-if ~isfile(csv_file)
     fid = fopen(csv_file, 'w');
     fprintf(fid, 'Nombre_fichero;Status;Muertos;Vivos\n');
     fclose(fid);
-end
-% Leer datos reales
+
+% Estructurar datos reales
 if isfile(ground_truth_file)
     % Leer archivo como texto y reemplazar comas por punto y coma
     raw1 = fileread(ground_truth_file);
     raw1 = strrep(raw1, ',', ';');
-    
+
     % Escribir a archivo temporal limpio
     fid = fopen(ground_truth_file, 'w');
     fwrite(fid, raw1);
     fclose(fid);
-    T = readtable(ground_truth_file, 'Delimiter', ';', 'VariableNamingRule', 'modify');
-    
-    % Mostrar nombres de columnas detectadas (opcional para depurar)
-    % disp(T.Properties.VariableNames)
-    
-    % Acceder a las columnas por los nombres detectados
-    file_names  = strtrim(string(T{:, "File"}));
-    
-    % Buscar columna con el estado de la imagen
-    col_status  = contains(lower(T.Properties.VariableNames), "status");
-    status_ref  = T{:, col_status};
 end
 
 files = dir(fullfile(folder_path,'*.tif'));
@@ -52,21 +35,19 @@ for k = 1:numel(files)
     % Binarizar para obtener máscara gruesa de cristal
     MASK   = imbinarize(I, 0.1);        % fondo claro = 1, cristal = 0
     MASK   = imcomplement(MASK);           % interior = 1
-    MASK   = bwareaopen(MASK, 120);        % limpia artefactos
+    MASK   = bwareaopen(MASK, 120);        % Eliminar regiones
     
     % Aislar interior: fondo exterior a blanco
     interior = I;
     interior(~MASK) = 255;
 
-    % Limpiar máscara preliminar (opcional)
+    % Segunda binarización de la máscara
     level  = graythresh(interior);
-    MKTemp = imbinarize(interior, level);
+    MKTemp = imbinarize(interior, level);   % umbral de Otsu
     MKTemp = imcomplement(MKTemp);
     MKTemp(~MASK) = 0;
-    MKFinal = bwareaopen(MKTemp, 120);
-    MKFinal = bwareaopen(~MKFinal, 120);
-    interior = I;
-    interior(~MKFinal) = 255;  % actualizo gray2 y MASK
+    MKFinal = bwareaopen(MKTemp, 120);      % elimina regiones pequeñas
+    MKFinal = bwareaopen(~MKFinal, 120);    % elimina huecos pequeños
     MASK  = MKFinal;
     
     %% Detectar objetos oscuros con umbral adaptativo
@@ -89,7 +70,7 @@ for k = 1:numel(files)
     % Aplicar el interior recortado para quitar resto de marco
     BW_noframe(~innerMask) = 0;
     
-    %% Limpiar la imagen
+    %% Filtrado morfológico
     BW1 = bwareaopen(BW_noframe, 150);
     se = strel('disk', 1);  % disco pequeño para suavizado ligero
     BW1 = imopen(BW1, se); % Eliminar bordes
