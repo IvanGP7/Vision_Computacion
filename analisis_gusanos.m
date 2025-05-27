@@ -1,74 +1,92 @@
 % Parámetros ajustables
 folder_path   = 'WormImages';
 output_folder = 'Resultado';
+image_output_folder = fullfile(output_folder, 'Imagenes');
+ground_truth_file = fullfile('WormDataA.csv');
+
+rmdir(output_folder, 's'); % Eliminar resultados anteriores
 
 if ~exist(output_folder,'dir')
     mkdir(output_folder);
+end
+if ~exist(image_output_folder, 'dir')
+    mkdir(image_output_folder);
 end
 
 csv_file = fullfile(output_folder, 'recuento_gusanos.csv');
 if ~isfile(csv_file)
     fid = fopen(csv_file, 'w');
-    fprintf(fid, 'nombre_fichero;muertos;vivos\n');
+    fprintf(fid, 'Nombre_fichero;Status;Muertos;Vivos\n');
     fclose(fid);
 end
-
+% Leer datos reales
+if isfile(ground_truth_file)
+    % Leer archivo como texto y reemplazar comas por punto y coma
+    raw1 = fileread(ground_truth_file);
+    raw1 = strrep(raw1, ',', ';');
+    
+    % Escribir a archivo temporal limpio
+    fid = fopen(ground_truth_file, 'w');
+    fwrite(fid, raw1);
+    fclose(fid);
+    T = readtable(ground_truth_file, 'Delimiter', ';', 'VariableNamingRule', 'modify');
+    
+    % Mostrar nombres de columnas detectadas (opcional para depurar)
+    % disp(T.Properties.VariableNames)
+    
+    % Acceder a las columnas por los nombres detectados
+    file_names  = strtrim(string(T{:, "File"}));
+    
+    % Buscar columna con el estado de la imagen
+    col_status  = contains(lower(T.Properties.VariableNames), "status");
+    status_ref  = T{:, col_status};
+end
 
 files = dir(fullfile(folder_path,'*.tif'));
-%k = 10;  % índice de la imagen a procesar
+%k = 1;  % índice de la imagen a procesar
 for k = 1:numel(files)
     name = files(k).name;
     I    = imread(fullfile(folder_path,name));
     
-    % 1) A gris y blanqueo negros puros
-    if size(I,3)==3
-        gray = rgb2gray(I);
-    else
-        gray = I;
-    end
-    gray(gray==0) = 255;
-    
     %% MASCARAS
     % Binarizar para obtener máscara gruesa de cristal
-    MASK   = imbinarize(gray, 0.1);        % fondo claro = 1, cristal = 0
+    MASK   = imbinarize(I, 0.1);        % fondo claro = 1, cristal = 0
     MASK   = imcomplement(MASK);           % interior = 1
     MASK   = bwareaopen(MASK, 120);        % limpia artefactos
     
     % Aislar interior: fondo exterior a blanco
-    gray2 = gray;
-    gray2(~MASK) = 255;
+    interior = I;
+    interior(~MASK) = 255;
 
     % Limpiar máscara preliminar (opcional)
-    level  = graythresh(gray2);
-    MKTemp = imbinarize(gray2, level);
+    level  = graythresh(interior);
+    MKTemp = imbinarize(interior, level);
     MKTemp = imcomplement(MKTemp);
     MKTemp(~MASK) = 0;
     MKFinal = bwareaopen(MKTemp, 120);
     MKFinal = bwareaopen(~MKFinal, 120);
-    gray2 = gray;
-    gray2(~MKFinal) = 255;  % actualizo gray2 y MASK
+    interior = I;
+    interior(~MKFinal) = 255;  % actualizo gray2 y MASK
     MASK  = MKFinal;
     
     %% Detectar objetos oscuros con umbral adaptativo
-    % 1) Prepara el gris para binarizar solo dentro de la máscara
-    grayMasked = gray;
+    % Prepara la imagen para binarizar solo dentro de la máscara
+    grayMasked = I;
     grayMasked(~MASK) = 255;          % forzamos fuera del cristal a blanco
     T  = adaptthresh(grayMasked, 0.6, 'NeighborhoodSize', 11);
     BW0 = imbinarize(grayMasked, T);    % 1 = claro
     BW = ~BW0;                          % gusanos (oscuros) → 1
     BW(~MASK) = 0;                      % zona fuera = 0  
     
-    % 4) Forzamos TODO lo que esté fuera de la máscara a 0 (negro)
+    % Forzamos TODO lo que esté fuera de la máscara a 0 (negro)
     BW(~MASK) = 0;
     
     %% Eliminar Marco Mascara
     se = strel('disk',1);                        % prueba radio 3–5px
     innerMask = imerode(MASK, se);
-    
-    % 2) Limpiar cualquier componente que toque el borde de la imagen
+    % Limpiar cualquier componente que toque el borde de la imagen
     BW_noframe = imclearborder(BW);
-    
-    % 3) Aplicar el interior recortado para quitar resto de marco
+    % Aplicar el interior recortado para quitar resto de marco
     BW_noframe(~innerMask) = 0;
     
     %% Limpiar la imagen
@@ -90,8 +108,9 @@ for k = 1:numel(files)
     stats = regionprops(BW1, 'BoundingBox', 'Eccentricity', 'Centroid');
     L = bwlabel(BW1);
 
-    % Mostrar detección sobre la imagen original
-    figure, imshow(gray), title('Gusanos detectados'); hold on;
+    % Mostrar y guardar imagen con anotaciones
+    fig = figure('Visible', 'off');
+    imshow(I), title('Gusanos detectados'); hold on;
 
     for i = 1:length(stats)
         bb = stats(i).BoundingBox;
@@ -109,19 +128,34 @@ for k = 1:numel(files)
         end
     end
 
-    
-    %% Mostrar resultados
-    %figure('Name',name,'NumberTitle','off');
-    %subplot(2,2,1), imshow(gray2),   title('Interior aislado');
-    %subplot(2,2,2), imshow(MASK),    title('Máscara interior');
-    %subplot(2,2,3), imshow(BW_noframe),    title('Máscara aplicada');
-    %subplot(2,2,4), imshow(BW1),  title('Eliminar ruido');
-    % (Opcional) guardar output
-    % imwrite(bwDark, fullfile(output_folder, ['dark_' name]));
+    if muertos < vivos
+        status = "alive";
+    else 
+        status = "dead";
+    end
+    saveas(fig, fullfile(image_output_folder, [name(1:end-4) '_detect.png']));
+    close(fig);
 
     %% Guardar resultados
+    %figure('Name',name,'NumberTitle','off');
+    %subplot(2,2,1), imshow(interior),   title('Interior aislado');
+    %subplot(2,2,2), imshow(MASK),    title('Máscara interior');
+    %subplot(2,2,3), imshow(BW_noframe),    title('Máscara aplicada');
+    %subplot(2,2,4), imshow(BW1),  title('Eliminar residuos y distinción de gusanos');
     fid = fopen(csv_file, 'a');
-    fprintf(fid, '%s;%d;%d\n', name, muertos, vivos);
+    fprintf(fid, '%s;%s;%d;%d\n', name, status, muertos, vivos);
     fclose(fid);
-
+    
 end
+
+%% Contador de porcentaje sobre el numero de aciertos
+T1 = readtable(ground_truth_file);
+T2 = readtable(csv_file);
+
+% Comparar columna 'Status' (segunda columna)
+status1 = strtrim(string(T1{:,2}));
+status2 = strtrim(string(T2{:,2}));
+
+coinciden = strcmpi(status1, status2);
+porcentaje = 100 * sum(coinciden) / numel(coinciden);
+fprintf('Coincidencia en la columna "Status": %.2f%%\n', porcentaje);
