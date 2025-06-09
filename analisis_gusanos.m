@@ -3,6 +3,7 @@ folder_path   = 'WormImages';
 output_folder = 'Resultado';
 image_output_folder = fullfile(output_folder, 'Imagenes');
 ground_truth_file = fullfile('WormDataA.csv');
+csv_file = fullfile(output_folder, 'Resultados.csv');
 
 if exist(output_folder,'dir')
     rmdir(output_folder, 's');
